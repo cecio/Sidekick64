@@ -276,6 +276,7 @@ I added two videos showing life captures of the C64 screen where the RPi is used
 
 ## Disclaimer
 
+I'm a hobbyist, no electronics engineer. I'm doing my best to ensure that my projects are working at intended, but I cannot give any guarantee for anything. I am not a manufacturer or distributor, so you must ensure yourself that operation is permitted in your place of residence. 
 Be careful not to damage your RPi or 8-bit computer, or anything attached to it. I am not responsible if you or your hardware gets damaged. In principle, you can attach the RPi and other cartridges at the same time, as long as they do not conflict (e.g. in IO ranges or driving signals). I recommend to NOT do this. For example, using Sidekick64 and an Easyflash 3 will very likely destroy the EF3's CPLD. Again, I'm not taking any responsibility -- if you don't know what you're doing, better don't... use everything at your own risk.
 
 ## Where did you get your Sidekick64? How to get one?

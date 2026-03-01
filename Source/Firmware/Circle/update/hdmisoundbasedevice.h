@@ -79,6 +79,7 @@ public:
 	/// \note Should be called only, when IsWritable() returned TRUE before.
 	/// \note Must be called twice for each frame (left/right sample).
 	void WriteSample (s32 nSample);
+        u32 ConvertSample (s32 nSample);
 
 protected:
 	/// \brief May overload this to provide the sound samples!

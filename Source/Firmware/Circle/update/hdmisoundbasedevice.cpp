@@ -453,6 +453,20 @@ void CHDMISoundBaseDevice::WriteSample (s32 nSample)
 	}
 }
 
+u32 CHDMISoundBaseDevice::ConvertSample (s32 nSample)
+{
+       assert (m_bUsePolling);
+
+       u32 retVal = ConvertIEC958Sample (nSample, m_nSubFrame / SOUND_HW_CHANNELS);
+
+       if (++m_nSubFrame == IEC958_SUBFRAMES_PER_BLOCK)
+       {
+               m_nSubFrame = 0;
+       }
+
+       return retVal;
+}
+
 boolean CHDMISoundBaseDevice::GetNextChunk (void)
 {
 	assert (m_pDMABuffer[m_nNextBuffer] != 0);

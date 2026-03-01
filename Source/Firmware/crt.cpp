@@ -31,7 +31,7 @@
 
 #define CONSOLE_DEBUG
 
-u8 tempRAWCRTBuffer[ 1032 * 1024 ];
+u8 tempRAWCRTBuffer[ 2100 * 1024 ];
 u8 gmod2EEPROM[ 2048 ];
 u8 gmod2EEPROM_data;
 
@@ -162,13 +162,13 @@ void readCRTFile( CLogger *logger, CRT_HEADER *crtHeader, const char *DRIVE, con
 	if ( result != FR_OK )
 		logger->Write( "RaspiFlash", LogPanic, "Cannot open file: %s", FILENAME );
 
-	if ( filesize > 1032 * 1024 )
-		filesize = 1032 * 1024;
+	if ( filesize > 2100 * 1024 )
+		filesize = 2100 * 1024;
 
 	// read data in one big chunk
 	u32 nBytesRead;
 //	memset( rawCRT, 0, filesize );
-	memset( rawCRT, 0, 1032 * 1024 );
+	memset( rawCRT, 0, 2100 * 1024 );
 	result = f_read( &file, rawCRT, filesize, &nBytesRead );
 
 	if ( result != FR_OK )
@@ -223,6 +223,10 @@ void readCRTFile( CLogger *logger, CRT_HEADER *crtHeader, const char *DRIVE, con
 			//logger->Write( "RaspiFlash", LogNotice, "MagicDesk CRT" );
 			*bankswitchType = BS_MAGICDESK;
 			*ROM_LH = bROML;
+			break;
+		case 85:
+			*bankswitchType = BS_MAGICDESK16;
+			*ROM_LH = bROML | bROMH;
 			break;
 		case 7:
 			*bankswitchType = BS_FUNPLAY;
@@ -560,8 +564,8 @@ int  getVIC20CRTFileStartEndAddr( CLogger *logger, const char *FILENAME, u32 *ad
 		return 0;
 	}
 
-	if ( filesize > 1032 * 1024 )
-		filesize = 1032 * 1024;
+	if ( filesize > 2100 * 1024 )
+		filesize = 2100 * 1024;
 
 	// read data in one big chunk
 	u32 nBytesRead;
@@ -894,7 +898,8 @@ int checkCRTFile( CLogger *logger, const char *DRIVE, const char *FILENAME, u32 
 		case 17: // Dinamic
 		case 57: // RGCD / Hucky
 		case 7: // Funplay
-			return 5;	
+		case 85: // Magic Desk 16K
+			return 5;
 		case 3:	 // Final Cartridge 3 CRT
 			if ( isFreezer ) *isFreezer = 1;
 			return 60;

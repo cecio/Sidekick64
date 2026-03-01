@@ -231,7 +231,7 @@ void globalMemoryAllocation()
 	animationStateInitial = (u32*)getPoolMemory( sizeof( u32 ) * 192 * 147 / 8 );
 
 	extern u8 *flash_cacheoptimized_pool;//[ 1024 * 1024 + 8 * 1024 ] AAA;
-	u64 p = (u64)getPoolMemory( 1024 * 1024 + 8 * 1024 + 128 );
+	u64 p = (u64)getPoolMemory( 2 * 1024 * 1024 + 8 * 1024 + 128 );
 	p = ( p + 128ULL ) & ~128ULL;
 	flash_cacheoptimized_pool = (u8*)p;
 

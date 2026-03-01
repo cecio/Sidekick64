@@ -350,6 +350,10 @@ void initEF()
 	{
 		ef.reg2 = 128 + 4 + 2;
 	}
+	if ( ef.bankswitchType == BS_MAGICDESK16 )
+	{
+		ef.reg2 = 128 + 4 + 2 + 1;
+	}
 
 	ef.flashBank = &ef.flash_cacheoptimized[ ef.reg0 * 8192 * 2 ];
 
@@ -508,6 +512,7 @@ static void KernelEFFIQHandler_SimonsBasic( void *pParam );
 static void KernelEFFIQHandler_Comal80( void *pParam );
 static void KernelEFFIQHandler_EpyxFL( void *pParam );
 static void KernelMDOnlyFIQHandler( void *pParam );
+static void KernelMD16FIQHandler( void *pParam );
 
 #define LRU_CACHE_ENTRIES	16
 
@@ -714,6 +719,8 @@ void CKernelEF::Run( void )
 
 			if ( ef.bankswitchType == BS_MAGICDESK )
 				sprintf( b1, "md %d BANKS (%d KB)", ef.nBanks, ef.nBanks * 8192 / 1024 );
+			if ( ef.bankswitchType == BS_MAGICDESK16 )
+				sprintf( b1, "md16 %d BANKS (%d KB)", ef.nBanks, ef.nBanks * 16384 / 1024 );
 			if ( ef.bankswitchType == BS_EASYFLASH )
 				sprintf( b1, "%d BANKS (%d KB)", ef.nBanks, ef.nBanks * 16384 / 1024 );
 			if ( ef.bankswitchType == BS_NONE )
@@ -824,6 +831,8 @@ void CKernelEF::Run( void )
 
 	if ( ef.bankswitchType == BS_MAGICDESK )
 		myHandler = KernelMDOnlyFIQHandler;
+	if ( ef.bankswitchType == BS_MAGICDESK16 )
+		myHandler = KernelMD16FIQHandler;
 	#endif
 
 	if ( !usePollingEFHandler )
@@ -851,6 +860,8 @@ void CKernelEF::Run( void )
 	// determine how to and preload caches
 	if ( ef.bankswitchType == BS_MAGICDESK /*|| ef.bankswitchType == BS_GMOD2*/ )
 		ef.flashFitsInCache = ( ef.nBanks <= 64 ) ? 1 : 0; else // Magic Desk only uses ROML-banks -> different memory layout
+	if ( ef.bankswitchType == BS_MAGICDESK16 )
+		ef.flashFitsInCache = ( ef.nBanks <= 32 ) ? 1 : 0; else // Magic Desk 16K uses interleaved ROML+ROMH
 		ef.flashFitsInCache = ( ef.nBanks <= 32 ) ? 1 : 0;
 
 	// TODO
@@ -2013,6 +2024,185 @@ cleanup:
 	//CLEAR_LEDS_EVERY_8K_CYCLES
 	static u32 cycleCount = 0;
 	if ( !((++cycleCount)&8191) )
+		clrLatchFIQ( LED_CLEAR );
+
+	OUTPUT_LATCH_AND_FINISH_BUS_HANDLING
+}
+
+static void KernelMD16FIQHandler( void *pParam )
+{
+	register u32 D, addr;
+	register u8 *flashBankR = ef.flashBank;
+
+	// after this call we have some time (until signals are valid, multiplexers have switched, the RPi can/should read again)
+	START_AND_READ_ADDR0to7_RW_RESET_CS
+
+	// we got the A0..A7 part of the address which we will access
+	addr = GET_ADDRESS0to7 << 5;
+
+	CACHE_PRELOADL2STRM( &flashBankR[ addr * 2 ] );
+	UPDATE_COUNTERS_MIN( ef.c64CycleCount, ef.resetCounter2 )
+
+	//
+	//
+	//
+	if ( VIC_HALF_CYCLE )
+	{
+		if ( ef.reg2 != 4 && VIC_HALF_CYCLE )
+		{
+			WAIT_AND_READ_ADDR8to12_ROMLH_IO12_BA
+
+			addr |= GET_ADDRESS8to12;
+
+			if ( ROML_OR_ROMH_ACCESS )
+			{
+				// get both ROML and ROMH with one read (interleaved layout)
+				D = *(u32*)&flashBankR[ addr * 2 ];
+				if ( ROMH_ACCESS ) D >>= 8;
+				WRITE_D0to7_TO_BUS_VIC( D )
+				setLatchFIQ( LED_ROM_ACCESS );
+			}
+			FINISH_BUS_HANDLING
+			return;
+		}
+
+		FINISH_BUS_HANDLING
+		return;
+	}
+
+
+	ef.mainloopCount = 0;
+
+	// read the rest of the signals
+	WAIT_AND_READ_ADDR8to12_ROMLH_IO12_BA
+
+	// make our address complete
+	addr |= GET_ADDRESS8to12;
+
+	// VIC2 read during badline?
+	if ( ef.reg2 != 4 && VIC_BADLINE )
+	{
+		if ( !ef.LONGBOARD )
+			READ_ADDR8to12_ROMLH_IO12_BA
+
+		if ( ROMH_ACCESS )
+		{
+			D = *(u8*)&flashBankR[ addr * 2 + 1 ];
+			WRITE_D0to7_TO_BUS_BADLINE( D )
+		}
+		FINISH_BUS_HANDLING
+		return;
+	}
+
+	//
+	// starting from here: CPU communication
+	//
+	if ( ef.reg2 != 4 && CPU_READS_FROM_BUS && ROML_ACCESS )
+	{
+		{
+			D = *(u32*)&flashBankR[ addr * 2 ];
+
+			WRITE_D0to7_TO_BUS( D )
+			setLatchFIQ( LED_ROM_ACCESS );
+			goto cleanup;
+		}
+	}
+
+	if ( ef.reg2 != 4 && CPU_READS_FROM_BUS && ROMH_ACCESS )
+	{
+		{
+			D = *(u32*)&flashBankR[ addr * 2 + 1 ];
+
+			WRITE_D0to7_TO_BUS( D )
+			setLatchFIQ( LED_ROM_ACCESS );
+			goto cleanup;
+		}
+	}
+
+	// MD16 does not disable IO1 reading!
+	if ( CPU_WRITES_TO_BUS && IO1_ACCESS )
+	{
+		READ_D0to7_FROM_BUS( D )
+
+		if( GET_IO12_ADDRESS == 0 )
+		{
+			if ( !( D & 128 ) )
+			{
+				ef.reg0 = (u8)( D & 127 );
+				ef.reg2 = 128 + 4 + 2 + 1;
+			} else
+				ef.reg2 = 4 + 0;
+		}
+
+		ef.flashBank = &ef.flash_cacheoptimized[ ef.reg0 * 8192 * 2 ];
+
+		// if the EF-ROM does not fit into the RPi's cache: stall the CPU with a DMA and prefetch the data
+		if ( !ef.flashFitsInCache )
+		{
+			WAIT_UP_TO_CYCLE( WAIT_TRIGGER_DMA );
+			CLR_GPIO( bDMA );
+			ef.releaseDMA = NUM_DMA_CYCLES;
+			prefetchHeuristic();
+		}
+
+		setGAMEEXROM();
+
+		setLatchFIQ( LED_IO1 );
+		goto cleanup;
+	}
+
+	// reset handling
+	if ( !( g2 & bRESET ) ) { ef.resetCounter ++; } else { ef.resetCounter = 0; }
+
+	if ( ef.resetCounter > 3 && ef.resetCounter < 0x8000000 )
+	{
+		ef.resetCounter = 0x8000000;
+		initEF();
+		SET_GPIO( bDMA );
+		FINISH_BUS_HANDLING
+		return;
+	}
+
+cleanup:
+
+	if ( ef.releaseDMA > 0 && --ef.releaseDMA == 0 )
+	{
+		WAIT_UP_TO_CYCLE( WAIT_RELEASE_DMA );
+		SET_GPIO( bDMA );
+	}
+
+	if ( ef.reg2 == 4 ) // cartridge disabled
+	{
+		if ( showSlideShow )
+		{
+			if ( pauseSlideShow )
+			{
+				pauseSlideShow --;
+			} else
+			if ( bufferEmptyI2C() )
+			{
+				extern void setMultiplePixels( u32 x, u32 y, u32 nx, u32 ny, u16 *c );
+				setMultiplePixels( curCopyRow, 0, 0, 239, (u16 *)&tftSlideShow[ (curSlideShowImage * 240 + curCopyRow ) * 240 * 2 ] );
+
+				do {
+					curPixelRow ++;
+					if ( curPixelRow > 255 )
+					{
+						curPixelRow = 0;
+						pauseSlideShow = (u32)timeSlideShow[ tftSlideShowNImages - 1 - curSlideShowImage ] * 500000 * 2;
+						curSlideShowImage = ( curSlideShowImage + tftSlideShowNImages - 1 ) % tftSlideShowNImages;
+					}
+					curCopyRow = flipByte( curPixelRow );
+				} while ( curCopyRow >= 240 );
+			}
+		}
+
+		prepareOutputLatch4Bit();
+	}
+
+	//CLEAR_LEDS_EVERY_8K_CYCLES
+	static u32 md16CycleCount = 0;
+	if ( !((++md16CycleCount)&8191) )
 		clrLatchFIQ( LED_CLEAR );
 
 	OUTPUT_LATCH_AND_FINISH_BUS_HANDLING

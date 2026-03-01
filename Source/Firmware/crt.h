@@ -60,6 +60,7 @@
 #define BS_FREEZEFRAME		0x12
 #define BS_FREEZEMACHINE	0x13
 #define BS_WARPSPEED    	0x14
+#define BS_MAGICDESK16  	0x15
 
 static const char CRT_HEADER_SIG[] = "C64 CARTRIDGE   ";
 static const char CRT_HEADER_SIG20[] = "VIC20 CARTRIDGE  ";
